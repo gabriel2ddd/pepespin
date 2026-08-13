@@ -261,7 +261,10 @@ const NS = "pepespin";
 // de verdade esse objeto não existe, e sem isso o estado (incluindo o horário do
 // último resgate) nunca era salvo de verdade — por isso atualizar a página
 // resetava o tempo de espera. Esse polyfill usa localStorage do navegador,
-// que funciona em qualquer site publicado, pra persistir os dados de verdade.
+// que funciona em qualquer site publicado, pra persistir os dados PESSOAIS
+// (saldo, conta FaucetPay, histórico). A contagem de indicações é diferente:
+// ela precisa ser vista por todo mundo, então usa a function referral.js
+// (Netlify Blobs) em vez desse polyfill — ver loadState() mais abaixo.
 if(!window.storage){
   window.storage = {
     async get(key){
@@ -315,25 +318,31 @@ async function loadState(){
     await saveState();
   }
 
-  // registra indicação se veio de um link ?ref=
+  // registra indicação se veio de um link ?ref= — via Netlify Function, que
+  // usa Netlify Blobs (armazenamento real no servidor). localStorage não
+  // serve aqui porque cada visitante teria sua própria contagem isolada.
+  // A checagem de "já registrado nesse navegador" evita contar a mesma
+  // indicação de novo toda vez que a página é recarregada com ?ref= na URL.
   const params = new URLSearchParams(window.location.search);
   const incomingRef = params.get('ref');
-  if(incomingRef && incomingRef !== state.refCode){
+  const alreadyRegistered = localStorage.getItem(NS+':registeredRef') === incomingRef;
+  if(incomingRef && incomingRef !== state.refCode && !alreadyRegistered){
     try{
-      const key = NS+':refs:'+incomingRef;
-      let count = 0;
-      try{
-        const r = await window.storage.get(key, true);
-        count = r && r.value ? parseInt(r.value,10) : 0;
-      }catch(e){ count = 0; }
-      await window.storage.set(key, String(count+1), true);
+      await fetch('/.netlify/functions/referral', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ref: incomingRef })
+      });
+      localStorage.setItem(NS+':registeredRef', incomingRef);
     }catch(e){ console.error('ref tracking error', e); }
   }
 
-  // busca contagem de indicados do próprio código (dado compartilhado)
+  // busca contagem de indicados do próprio código — dado compartilhado de
+  // verdade, consultado no servidor via a mesma function.
   try{
-    const r = await window.storage.get(NS+':refs:'+state.refCode, true);
-    state.refCount = r && r.value ? parseInt(r.value,10) : 0;
+    const r = await fetch('/.netlify/functions/referral?ref=' + encodeURIComponent(state.refCode));
+    const data = await r.json();
+    state.refCount = data.success ? data.count : 0;
   }catch(e){ state.refCount = 0; }
 
   render();
