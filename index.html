@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PepeSpin — Faucet PEPE</title>
+<style>
+  :root{
+    --bg: #eaf6df;
+    --bg2: #d8efc4;
+    --panel: #ffffff;
+    --ink: #163a1c;
+    --ink-dim: #5c8161;
+    --line: #cfe8bd;
+    --pepe: #3fae44;
+    --pepe-dark: #237a2c;
+    --gold: #ffc93c;
+    --coral: #ff6f59;
+    --sky: #35b6c9;
+    --mono: 'JetBrains Mono', 'Courier New', monospace;
+    --sans: 'Baloo 2', 'Space Grotesk', Arial, sans-serif;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 20px;
+    background-image:
+      radial-gradient(circle at 10% 0%, rgba(63,174,68,0.14), transparent 45%),
+      radial-gradient(circle at 95% 100%, rgba(255,201,60,0.16), transparent 40%);
+  }
+  .wrap{ max-width: 1040px; margin: 0 auto; }
+
+  header{
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;
+    padding: 16px 4px 22px;
+  }
+  .logo{ display:flex; align-items:center; gap:12px; }
+  .logo .mark{
+    width:44px; height:44px; border-radius:14px;
+    background: linear-gradient(135deg, var(--pepe), var(--pepe-dark));
+    display:flex; align-items:center; justify-content:center;
+    font-weight:800; color:#fff; font-size:20px; box-shadow: 0 6px 16px rgba(35,122,44,0.3);
+  }
+  .logo span{ font-weight:800; font-size:22px; color: var(--pepe-dark); }
+  .logo small{ display:block; color:var(--ink-dim); font-size:11px; letter-spacing:1.5px; text-transform:uppercase; font-family:var(--mono);}
+
+  .balance-pill{
+    font-family: var(--mono); background: var(--panel); border:2px solid var(--line);
+    padding: 10px 18px; border-radius: 14px; text-align:right;
+  }
+  .balance-pill b{ color: var(--pepe-dark); font-size:19px; }
+  .balance-pill span{ display:block; color:var(--ink-dim); font-size:10px; letter-spacing:1.5px; text-transform:uppercase;}
+
+  .ad-slot{
+    border: 2px dashed var(--line); border-radius: 14px;
+    display:flex; align-items:center; justify-content:center;
+    color: var(--ink-dim); font-family: var(--mono); font-size: 12px;
+    background: var(--panel); height: 90px; margin-bottom: 22px;
+    overflow-x:auto; max-width:100%;
+  }
+
+  .tabs{ display:flex; gap:8px; margin-bottom: 22px; flex-wrap:wrap; }
+  .tab-btn{
+    font-family: var(--sans); font-weight:700; font-size:13.5px; color: var(--ink-dim);
+    background: var(--panel); border:2px solid var(--line); padding:10px 18px; border-radius:12px;
+    cursor:pointer; transition: all .15s ease;
+  }
+  .tab-btn.active{ background: var(--pepe); color:#fff; border-color: var(--pepe-dark); }
+
+  .panel{
+    background: var(--panel); border:2px solid var(--line); border-radius: 22px;
+    padding: 32px; text-align:center; position:relative; overflow:hidden;
+  }
+
+  .wheel-zone{ display:flex; flex-direction:column; align-items:center; gap:20px; padding: 8px 0 4px;}
+  .wheel-outer{ position:relative; width:270px; height:270px; }
+  svg.wheel{ width:100%; height:100%; transition: transform 4.5s cubic-bezier(.17,.67,.16,.99); filter: drop-shadow(0 8px 18px rgba(22,58,28,0.18)); }
+  .pointer{
+    position:absolute; top:-8px; left:50%; transform:translateX(-50%);
+    width:0; height:0; border-left:13px solid transparent; border-right:13px solid transparent;
+    border-top:20px solid var(--coral); z-index:5; filter: drop-shadow(0 2px 3px rgba(0,0,0,.25));
+  }
+
+  .claim-btn{
+    font-family: var(--sans); font-weight:800; font-size:15px; letter-spacing:0.5px;
+    color:#fff; background: linear-gradient(135deg, var(--pepe), var(--pepe-dark));
+    border:none; padding: 16px 38px; border-radius: 14px; cursor:pointer;
+    box-shadow: 0 8px 22px rgba(35,122,44,0.3);
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .claim-btn:hover:not(:disabled){ transform: translateY(-2px); box-shadow: 0 12px 26px rgba(35,122,44,0.4); }
+  .claim-btn:disabled{ background: var(--line); color: var(--ink-dim); cursor:not-allowed; box-shadow:none; }
+
+  .timer{ font-family: var(--mono); color: var(--ink-dim); font-size:13px; min-height: 18px; }
+  .timer b{ color: var(--coral); }
+  .result{ font-family: var(--mono); min-height: 24px; font-size: 16px; color: var(--pepe-dark); font-weight:700; }
+
+  .stats-row{ display:grid; grid-template-columns: repeat(3,1fr); gap:14px; margin-top: 26px; }
+  .stat{ background: var(--bg); border:2px solid var(--line); border-radius: 14px; padding: 14px; }
+  .stat span{ display:block; color:var(--ink-dim); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:6px;}
+  .stat b{ font-family: var(--mono); font-size: 17px; color: var(--ink); }
+
+  .ledger{ margin-top: 22px; text-align:left; background: var(--bg); border:2px solid var(--line); border-radius: 14px; max-height: 160px; overflow-y:auto; }
+  .ledger-title{ font-family: var(--mono); font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color: var(--ink-dim); padding: 10px 14px; border-bottom:2px solid var(--line); }
+  .ledger-row{ display:flex; justify-content:space-between; padding: 8px 14px; font-family: var(--mono); font-size:12.5px; border-bottom:1px solid var(--line); }
+  .ledger-row span:first-child{ color: var(--ink-dim); }
+  .ledger-row span:last-child{ color: var(--pepe-dark); font-weight:700; }
+
+  /* account panel */
+  .field-group{ text-align:left; margin-bottom: 16px; }
+  .field-group label{ display:block; font-family: var(--mono); font-size:11px; letter-spacing:1px; text-transform:uppercase; color: var(--ink-dim); margin-bottom:6px; }
+  .field-group input{
+    width:100%; padding: 12px 14px; border-radius: 10px; border:2px solid var(--line);
+    font-family: var(--mono); font-size:13.5px; background: var(--bg); color: var(--ink);
+  }
+  .field-group input:focus{ outline:none; border-color: var(--pepe); }
+  .save-btn{
+    font-family: var(--sans); font-weight:700; font-size:13.5px; color:#fff;
+    background: var(--pepe-dark); border:none; padding:11px 22px; border-radius:10px; cursor:pointer;
+  }
+  .field-hint{ font-family: var(--mono); font-size:11.5px; color: var(--ink-dim); margin-top:6px; }
+  .status-ok{ color: var(--pepe-dark); font-family:var(--mono); font-size:12.5px; margin-top:10px; min-height:16px; }
+
+  /* referral panel */
+  .ref-box{
+    display:flex; gap:10px; align-items:center; background: var(--bg); border:2px solid var(--line);
+    border-radius: 12px; padding: 12px 14px; margin: 14px 0;
+  }
+  .ref-box input{ flex:1; border:none; background:transparent; font-family:var(--mono); font-size:12.5px; color:var(--ink); }
+  .ref-box input:focus{ outline:none; }
+  .copy-btn{ font-family: var(--sans); font-weight:700; font-size:12.5px; color:#fff; background: var(--coral); border:none; padding:9px 16px; border-radius:8px; cursor:pointer; }
+
+  .split-row{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:16px; }
+  .split-card{ background: var(--bg); border:2px solid var(--line); border-radius:12px; padding:16px; text-align:left; }
+  .split-card b{ display:block; font-size: 22px; color: var(--pepe-dark); font-family:var(--mono); }
+  .split-card span{ font-size:11px; color: var(--ink-dim); letter-spacing:1px; text-transform:uppercase; }
+
+  .setup-note{ margin-top: 26px; background: var(--panel); border:2px solid var(--line); border-radius:18px; padding: 24px 26px; text-align:left; }
+  .setup-note h3{ font-family: var(--mono); font-size:13px; letter-spacing:1.5px; text-transform:uppercase; color: var(--coral); margin-bottom:12px;}
+  .setup-note ol{ padding-left:18px; color: var(--ink-dim); font-size:13.5px; line-height:1.9; }
+  .setup-note code{ background: var(--bg); padding:2px 7px; border-radius:5px; color: var(--pepe-dark); font-family: var(--mono); font-size:12px;}
+  .setup-note p{ color: var(--ink-dim); font-size:13px; margin-top:10px; }
+
+  .hidden{ display:none; }
+  footer{ text-align:center; color: var(--ink-dim); font-family: var(--mono); font-size:11px; margin-top: 26px; padding: 18px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">
+      <div class="mark">🐸</div>
+      <div>
+        <span>PepeSpin</span>
+        <small>faucet PEPE</small>
+      </div>
+    </div>
+    <div class="balance-pill">
+      <span>saldo</span>
+      <b id="balanceDisplay">0</b> <span style="text-transform:none;">PEPE</span>
+    </div>
+  </header>
+
+  <div class="ad-slot" id="adSlot">
+    <!-- BEGIN AADS AD UNIT 2451920 -->
+    <div id="frame" style="width: 728px;margin: auto;z-index: 99998;height: auto">
+      <iframe data-aa='2451920' src='//ad.a-ads.com/2451920/?size=728x90'
+        style='border:0; padding:0; width:728px; height:90px; overflow:hidden;display: block;margin: auto'></iframe>
+    </div>
+    <!-- END AADS AD UNIT 2451920 -->
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="wheel" onclick="switchTab('wheel')">🎡 Roleta</button>
+    <button class="tab-btn" data-tab="account" onclick="switchTab('account')">💳 Conta FaucetPay</button>
+    <button class="tab-btn" data-tab="ref" onclick="switchTab('ref')">🔗 Indicação</button>
+  </div>
+
+  <!-- WHEEL TAB -->
+  <div id="tab-wheel">
+    <div class="panel">
+      <div class="wheel-zone">
+        <div class="wheel-outer">
+          <div class="pointer"></div>
+          <svg class="wheel" id="wheel" viewBox="0 0 200 200"></svg>
+        </div>
+        <button class="claim-btn" id="claimBtn" onclick="spin()">Girar e resgatar</button>
+        <div class="timer" id="timer"></div>
+        <div class="result" id="result"></div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat"><span>total resgatado</span><b id="totalClaimed">0</b></div>
+        <div class="stat"><span>resgates feitos</span><b id="claimCount">0</b></div>
+        <div class="stat"><span>próximo em</span><b id="nextInStat">disponível</b></div>
+      </div>
+
+      <div class="ledger">
+        <div class="ledger-title">Histórico de resgates</div>
+        <div id="ledgerBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACCOUNT TAB -->
+  <div id="tab-account" class="hidden">
+    <div class="panel" style="text-align:left;">
+      <div class="field-group">
+        <label>E-mail ou usuário FaucetPay</label>
+        <input type="text" id="fpAccount" placeholder="seuemail@exemplo.com ou @seuusuario">
+        <div class="field-hint">É pra cá que o saldo resgatado vai ser enviado. Sem isso preenchido, o resgate fica só em modo demonstração.</div>
+      </div>
+      <button class="save-btn" onclick="saveAccount()">Salvar conta</button>
+      <div class="status-ok" id="accountStatus"></div>
+    </div>
+  </div>
+
+  <!-- REFERRAL TAB -->
+  <div id="tab-ref" class="hidden">
+    <div class="panel" style="text-align:left;">
+      <div class="field-group" style="margin-bottom:6px;">
+        <label>Seu link de indicação</label>
+      </div>
+      <div class="ref-box">
+        <input type="text" id="refLink" readonly>
+        <button class="copy-btn" onclick="copyRef()">Copiar</button>
+      </div>
+      <div class="field-hint">Compartilhe esse link. Quem entrar por ele fica marcado como sua indicação.</div>
+
+      <div class="split-row">
+        <div class="split-card"><b id="refCount">0</b><span>pessoas indicadas</span></div>
+        <div class="split-card"><b>10% / 5%</b><span>bônus indicado / você</span></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>PepeSpin</footer>
+</div>
+
+<script>
+const SEGMENTS = [
+  {value:5,  color:"#3fae44"},
+  {value:10, color:"#35b6c9"},
+  {value:15, color:"#ff6f59"},
+  {value:20, color:"#ffc93c"},
+  {value:30, color:"#8a63d2"},
+  {value:40, color:"#3fae44"},
+  {value:50, color:"#35b6c9"},
+  {value:100,color:"#ff9d3c"},
+];
+const COOLDOWN_MS = 300 * 1000; // 5 minutos entre resgates
+const NS = "pepespin";
+
+// window.storage só existe no ambiente de preview do Claude. No site publicado
+// de verdade esse objeto não existe, e sem isso o estado (incluindo o horário do
+// último resgate) nunca era salvo de verdade — por isso atualizar a página
+// resetava o tempo de espera. Esse polyfill usa localStorage do navegador,
+// que funciona em qualquer site publicado, pra persistir os dados de verdade.
+if(!window.storage){
+  window.storage = {
+    async get(key){
+      const raw = localStorage.getItem(key);
+      return raw !== null ? { key, value: raw } : null;
+    },
+    async set(key, value){
+      localStorage.setItem(key, value);
+      return { key, value };
+    }
+  };
+}
+
+let state = { balance:0, claims:0, lastClaim:0, history:[], account:"", refCount:0, refCode:"" };
+
+function buildWheel(){
+  const svg = document.getElementById('wheel');
+  const n = SEGMENTS.length, r = 96, cx=100, cy=100;
+  const angle = 360/n;
+  let html = '';
+  SEGMENTS.forEach((seg,i)=>{
+    const start = i*angle, end = start+angle;
+    const x1 = cx + r*Math.cos(Math.PI*(start-90)/180);
+    const y1 = cy + r*Math.sin(Math.PI*(start-90)/180);
+    const x2 = cx + r*Math.cos(Math.PI*(end-90)/180);
+    const y2 = cy + r*Math.sin(Math.PI*(end-90)/180);
+    html += `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 0,1 ${x2},${y2} Z" fill="${seg.color}" stroke="#ffffff" stroke-width="2"/>`;
+    const mid = start+angle/2;
+    const tx = cx + (r*0.64)*Math.cos(Math.PI*(mid-90)/180);
+    const ty = cy + (r*0.64)*Math.sin(Math.PI*(mid-90)/180);
+    html += `<text x="${tx}" y="${ty}" fill="#ffffff" font-size="10" font-family="monospace" font-weight="700" text-anchor="middle" transform="rotate(${mid} ${tx} ${ty})">${seg.value}</text>`;
+  });
+  svg.innerHTML = html;
+}
+
+function switchTab(name){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  ['wheel','account','ref'].forEach(t=>{
+    document.getElementById('tab-'+t).classList.toggle('hidden', t!==name);
+  });
+}
+
+async function loadState(){
+  try{
+    const res = await window.storage.get(NS+':state');
+    if(res && res.value) state = {...state, ...JSON.parse(res.value)};
+  }catch(e){ /* sem estado salvo ainda */ }
+
+  if(!state.refCode){
+    state.refCode = Math.random().toString(36).slice(2,9);
+    await saveState();
+  }
+
+  // registra indicação se veio de um link ?ref=
+  const params = new URLSearchParams(window.location.search);
+  const incomingRef = params.get('ref');
+  if(incomingRef && incomingRef !== state.refCode){
+    try{
+      const key = NS+':refs:'+incomingRef;
+      let count = 0;
+      try{
+        const r = await window.storage.get(key, true);
+        count = r && r.value ? parseInt(r.value,10) : 0;
+      }catch(e){ count = 0; }
+      await window.storage.set(key, String(count+1), true);
+    }catch(e){ console.error('ref tracking error', e); }
+  }
+
+  // busca contagem de indicados do próprio código (dado compartilhado)
+  try{
+    const r = await window.storage.get(NS+':refs:'+state.refCode, true);
+    state.refCount = r && r.value ? parseInt(r.value,10) : 0;
+  }catch(e){ state.refCount = 0; }
+
+  render();
+}
+
+async function saveState(){
+  try{ await window.storage.set(NS+':state', JSON.stringify(state)); }
+  catch(e){ console.error('storage error', e); }
+}
+
+function render(){
+  document.getElementById('balanceDisplay').textContent = state.balance;
+  document.getElementById('totalClaimed').textContent = state.balance;
+  document.getElementById('claimCount').textContent = state.claims;
+
+  const body = document.getElementById('ledgerBody');
+  body.innerHTML = state.history.slice(0,15).map(h=>{
+    let label = `+${h.amount} PEPE`;
+    if(h.mode==='demo') label += ' (demo)';
+    else if(h.mode==='erro') label = 'falhou';
+    return `<div class="ledger-row"><span>${h.time}</span><span>${label}</span></div>`;
+  }).join('') || '<div class="ledger-row"><span>nenhum resgate ainda</span><span>—</span></div>';
+
+  document.getElementById('fpAccount').value = state.account || '';
+  const link = window.location.origin + window.location.pathname + '?ref=' + state.refCode;
+  document.getElementById('refLink').value = link;
+  document.getElementById('refCount').textContent = state.refCount;
+
+  updateTimerLoop();
+}
+
+function updateTimerLoop(){
+  if(spinning) return; // não mexe no botão enquanto a roleta está girando
+  const btn = document.getElementById('claimBtn');
+  const timer = document.getElementById('timer');
+  const nextStat = document.getElementById('nextInStat');
+  const remaining = COOLDOWN_MS - (Date.now() - state.lastClaim);
+
+  if(remaining > 0){
+    btn.disabled = true;
+    const s = Math.ceil(remaining/1000);
+    timer.innerHTML = `próximo resgate em <b>${s}s</b>`;
+    nextStat.textContent = s+'s';
+  } else {
+    btn.disabled = false;
+    timer.textContent = '';
+    nextStat.textContent = 'disponível';
+  }
+}
+setInterval(updateTimerLoop, 1000);
+
+let spinning = false;
+let currentRotation = 0;
+
+function spin(){
+  if(spinning){ return; }
+  const remaining = COOLDOWN_MS - (Date.now() - state.lastClaim);
+  if(remaining > 0){ return; }
+
+  const wheel = document.getElementById('wheel');
+  const result = document.getElementById('result');
+  const btn = document.getElementById('claimBtn');
+  if(!wheel || !result || !btn){ console.error('PepeSpin: elemento da roleta não encontrado'); return; }
+
+  spinning = true;
+  btn.disabled = true;
+  result.textContent = '';
+
+  const idx = Math.floor(Math.random()*SEGMENTS.length);
+  const angle = 360/SEGMENTS.length;
+  const targetMid = idx*angle + angle/2;
+  const spins = 6;
+  // sempre soma à rotação atual, nunca reseta pra 0 — evita qualquer engasgo visual
+  const finalRotation = currentRotation + spins*360 + (360 - (currentRotation % 360) - targetMid + 360) % 360;
+
+  wheel.style.transition = 'transform 4.5s cubic-bezier(.17,.67,.16,.99)';
+  // espera dois frames antes de aplicar, garante que o navegador registrou o estado anterior
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      wheel.style.transform = `rotate(${finalRotation}deg)`;
+    });
+  });
+  currentRotation = finalRotation;
+
+  // failsafe: se por algum motivo o transitionend não disparar, libera do mesmo jeito
+  let done = false;
+  const finish = ()=>{
+    if(done) return;
+    done = true;
+    const seg = SEGMENTS[idx];
+    result.textContent = 'processando resgate...';
+    creditBalance(seg.value).finally(()=>{ spinning = false; });
+  };
+  wheel.addEventListener('transitionend', finish, { once:true });
+  setTimeout(finish, 5000);
+}
+
+async function creditBalance(amount){
+  state.claims += 1;
+  state.lastClaim = Date.now();
+
+  // Sem conta FaucetPay salva: fica em modo demonstração (só soma na tela).
+  if(!state.account){
+    state.balance += amount;
+    state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount, mode:'demo' });
+    saveState();
+    render();
+    return;
+  }
+
+  // Com conta salva: tenta pagar de verdade via Netlify Function.
+  try{
+    const resp = await fetch('/.netlify/functions/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: state.account, amount })
+    });
+
+    if(resp.status === 404){
+      // função ainda não foi publicada nesse site
+      state.balance += amount;
+      state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount, mode:'demo' });
+      document.getElementById('result').textContent = `+ ${amount} PEPE (modo demonstração — função de pagamento ainda não publicada)`;
+      saveState(); render();
+      return;
+    }
+
+    const data = await resp.json();
+    if(data.success){
+      state.balance += amount;
+      state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount, mode:'real' });
+      document.getElementById('result').textContent = `+ ${amount} PEPE enviado pra sua conta FaucetPay!`;
+    } else {
+      state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount:0, mode:'erro' });
+      document.getElementById('result').textContent = `Não foi possível pagar: ${data.message || data.error || 'erro desconhecido'}`;
+    }
+  }catch(e){
+    console.error('claim error', e);
+    document.getElementById('result').textContent = 'Erro ao tentar pagar. Tente de novo em instantes.';
+  }
+
+  saveState();
+  render();
+}
+
+function saveAccount(){
+  const val = document.getElementById('fpAccount').value.trim();
+  state.account = val;
+  saveState();
+  const status = document.getElementById('accountStatus');
+  status.textContent = val ? 'Conta salva: ' + val : '';
+  setTimeout(()=>{ status.textContent=''; }, 3000);
+}
+
+function copyRef(){
+  const input = document.getElementById('refLink');
+  input.select();
+  navigator.clipboard?.writeText(input.value);
+}
+
+buildWheel();
+loadState();
+</script>
+</body>
+</html>
