@@ -146,6 +146,27 @@
   .setup-note code{ background: var(--bg); padding:2px 7px; border-radius:5px; color: var(--pepe-dark); font-family: var(--mono); font-size:12px;}
   .setup-note p{ color: var(--ink-dim); font-size:13px; margin-top:10px; }
 
+  /* PTC panel */
+  .ptc-list{ display:flex; flex-direction:column; gap:12px; margin-top:14px; }
+  .ptc-card{
+    display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;
+    background: var(--bg); border:2px solid var(--line); border-radius:14px; padding:16px;
+  }
+  .ptc-info h4{ font-size:14.5px; color: var(--ink); margin-bottom:4px; }
+  .ptc-info p{ font-size:12px; color: var(--ink-dim); word-break:break-word; }
+  .ptc-side{ text-align:right; flex-shrink:0; }
+  .ptc-reward{ font-family: var(--mono); font-weight:800; color: var(--pepe-dark); font-size:15px; margin-bottom:6px; }
+  .ptc-btn{
+    font-family: var(--sans); font-weight:700; font-size:12.5px; color:#fff;
+    background: linear-gradient(135deg, var(--pepe), var(--pepe-dark)); border:none;
+    padding:9px 16px; border-radius:10px; cursor:pointer; white-space:nowrap;
+  }
+  .ptc-btn:disabled{ background: var(--line); color: var(--ink-dim); cursor:not-allowed; }
+  .ptc-empty{ text-align:center; color: var(--ink-dim); font-family: var(--mono); font-size:13px; padding: 26px 0; }
+  .advertiser-toggle{ margin-top:22px; text-align:center; }
+  .advertiser-form{ margin-top:18px; padding-top:18px; border-top:2px dashed var(--line); }
+  .admin-badge{ display:inline-block; font-family:var(--mono); font-size:10px; letter-spacing:1px; text-transform:uppercase; padding:2px 8px; border-radius:6px; margin-left:8px; background:var(--line); color:var(--ink-dim); }
+
   .hidden{ display:none; }
   footer{ text-align:center; color: var(--ink-dim); font-family: var(--mono); font-size:11px; margin-top: 26px; padding: 18px 0; }
 </style>
@@ -180,6 +201,8 @@
     <button class="tab-btn active" data-tab="wheel" onclick="switchTab('wheel')">🎡 Roleta</button>
     <button class="tab-btn" data-tab="account" onclick="switchTab('account')">💳 Conta FaucetPay</button>
     <button class="tab-btn" data-tab="ref" onclick="switchTab('ref')">🔗 Indicação</button>
+    <button class="tab-btn" data-tab="ptc" onclick="switchTab('ptc')">📢 PTC</button>
+    <button class="tab-btn hidden" id="adminTabBtn" data-tab="admin" onclick="switchTab('admin')">🔑 Admin</button>
   </div>
 
   <!-- WHEEL TAB -->
@@ -240,6 +263,70 @@
     </div>
   </div>
 
+  <!-- PTC TAB -->
+  <div id="tab-ptc" class="hidden">
+    <div class="panel" style="text-align:left;">
+      <div class="field-group" style="margin-bottom:6px;">
+        <label>Anúncios disponíveis</label>
+      </div>
+      <div id="ptcList" class="ptc-list"><div class="ptc-empty">Carregando...</div></div>
+
+      <div class="advertiser-toggle">
+        <button class="copy-btn" onclick="toggleAdvertiserForm()">📢 Quer anunciar aqui?</button>
+      </div>
+      <div id="advertiserForm" class="advertiser-form hidden">
+        <div class="field-group">
+          <label>Link do anúncio (URL)</label>
+          <input type="text" id="adUrl" placeholder="https://seusite.com">
+        </div>
+        <div class="field-group">
+          <label>Título</label>
+          <input type="text" id="adTitle" placeholder="Nome do seu projeto" maxlength="80">
+        </div>
+        <div class="field-group">
+          <label>Descrição</label>
+          <input type="text" id="adDesc" placeholder="Uma frase curta sobre o anúncio" maxlength="200">
+        </div>
+        <div class="field-group">
+          <label>Recompensa por visualização (PEPE, máx. 240)</label>
+          <input type="number" id="adReward" min="1" max="240" value="50">
+        </div>
+        <div class="field-group">
+          <label>Tempo de visualização obrigatório (10 a 60 segundos)</label>
+          <input type="number" id="adSeconds" min="10" max="60" value="20">
+        </div>
+        <div class="field-group">
+          <label>Quantidade de visualizações desejada</label>
+          <input type="number" id="adViews" min="1" value="500">
+        </div>
+        <div class="field-group">
+          <label>Sua conta FaucetPay (pra contato e aprovação)</label>
+          <input type="text" id="adAccount" placeholder="seuemail@exemplo.com">
+        </div>
+        <div class="field-hint">
+          Depois de enviar, pague o valor combinado (mínimo 1 USDT) na nossa conta FaucetPay:
+          <code>SEU_EMAIL_FAUCETPAY_AQUI</code>. A campanha só entra no ar depois que a gente confirmar
+          o pagamento manualmente.
+        </div>
+        <button class="save-btn" style="margin-top:12px;" onclick="submitCampaign()">Enviar campanha</button>
+        <div class="status-ok" id="adStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADMIN TAB -->
+  <div id="tab-admin" class="hidden">
+    <div class="panel" style="text-align:left;">
+      <div class="field-group">
+        <label>Senha de administrador</label>
+        <input type="password" id="adminKeyInput" placeholder="a mesma chave da variável PTC_ADMIN_KEY">
+      </div>
+      <button class="save-btn" onclick="adminLogin()">Entrar</button>
+      <div class="status-ok" id="adminStatus"></div>
+      <div id="adminCampaigns" style="margin-top:20px;"></div>
+    </div>
+  </div>
+
   <footer>PepeSpin</footer>
 </div>
 
@@ -261,10 +348,7 @@ const NS = "pepespin";
 // de verdade esse objeto não existe, e sem isso o estado (incluindo o horário do
 // último resgate) nunca era salvo de verdade — por isso atualizar a página
 // resetava o tempo de espera. Esse polyfill usa localStorage do navegador,
-// que funciona em qualquer site publicado, pra persistir os dados PESSOAIS
-// (saldo, conta FaucetPay, histórico). A contagem de indicações é diferente:
-// ela precisa ser vista por todo mundo, então usa a function referral.js
-// (Netlify Blobs) em vez desse polyfill — ver loadState() mais abaixo.
+// que funciona em qualquer site publicado, pra persistir os dados de verdade.
 if(!window.storage){
   window.storage = {
     async get(key){
@@ -278,7 +362,7 @@ if(!window.storage){
   };
 }
 
-let state = { balance:0, claims:0, lastClaim:0, history:[], account:"", refCount:0, refCode:"" };
+let state = { balance:0, claims:0, lastClaim:0, history:[], account:"", refCount:0, refCode:"", referredBy:null };
 
 function buildWheel(){
   const svg = document.getElementById('wheel');
@@ -302,9 +386,20 @@ function buildWheel(){
 
 function switchTab(name){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
-  ['wheel','account','ref'].forEach(t=>{
-    document.getElementById('tab-'+t).classList.toggle('hidden', t!==name);
+  ['wheel','account','ref','ptc','admin'].forEach(t=>{
+    const el = document.getElementById('tab-'+t);
+    if(el) el.classList.toggle('hidden', t!==name);
   });
+}
+
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function getVisitorId(){
+  let v = localStorage.getItem(NS+':visitorId');
+  if(!v){ v = Math.random().toString(36).slice(2,10)+Date.now().toString(36); localStorage.setItem(NS+':visitorId', v); }
+  return v;
 }
 
 async function loadState(){
@@ -318,31 +413,38 @@ async function loadState(){
     await saveState();
   }
 
-  // registra indicação se veio de um link ?ref= — via Netlify Function, que
-  // usa Netlify Blobs (armazenamento real no servidor). localStorage não
-  // serve aqui porque cada visitante teria sua própria contagem isolada.
-  // A checagem de "já registrado nesse navegador" evita contar a mesma
-  // indicação de novo toda vez que a página é recarregada com ?ref= na URL.
+  // Identificador único deste navegador/visitante — usado tanto pra evitar
+  // contar a mesma indicação duas vezes quanto pro sistema de PTC (ver
+  // getVisitorId() mais abaixo, usada nas ações start-view/complete-view).
+  const visitorId = getVisitorId();
+
+  // Registra a indicação no servidor se chegou por um link ?ref=, e guarda
+  // pra sempre (mesmo depois de sair do site) que essa pessoa foi indicada,
+  // pra ela continuar recebendo o bônus de 10% em resgates futuros também.
   const params = new URLSearchParams(window.location.search);
   const incomingRef = params.get('ref');
-  const alreadyRegistered = localStorage.getItem(NS+':registeredRef') === incomingRef;
-  if(incomingRef && incomingRef !== state.refCode && !alreadyRegistered){
+  if(incomingRef && incomingRef !== state.refCode && !state.referredBy){
+    state.referredBy = incomingRef;
+    await saveState();
     try{
       await fetch('/.netlify/functions/referral', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ref: incomingRef })
+        body: JSON.stringify({ action: 'register', ref: incomingRef, visitorId })
       });
-      localStorage.setItem(NS+':registeredRef', incomingRef);
-    }catch(e){ console.error('ref tracking error', e); }
+    }catch(e){ /* falha silenciosa: não impede o uso do site */ }
   }
 
-  // busca contagem de indicados do próprio código — dado compartilhado de
-  // verdade, consultado no servidor via a mesma function.
+  // Busca no servidor a contagem real de indicados do próprio código,
+  // já contando visitas de outras pessoas de verdade (não só locais).
   try{
-    const r = await fetch('/.netlify/functions/referral?ref=' + encodeURIComponent(state.refCode));
-    const data = await r.json();
-    state.refCount = data.success ? data.count : 0;
+    const resp = await fetch('/.netlify/functions/referral', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'count', ref: state.refCode })
+    });
+    const data = await resp.json();
+    state.refCount = data && data.success ? data.count : 0;
   }catch(e){ state.refCount = 0; }
 
   render();
@@ -458,7 +560,7 @@ async function creditBalance(amount){
     const resp = await fetch('/.netlify/functions/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: state.account, amount })
+      body: JSON.stringify({ to: state.account, amount, referredBy: state.referredBy || null })
     });
 
     if(resp.status === 404){
@@ -472,9 +574,11 @@ async function creditBalance(amount){
 
     const data = await resp.json();
     if(data.success){
-      state.balance += amount;
-      state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount, mode:'real' });
-      document.getElementById('result').textContent = `+ ${amount} PEPE enviado pra sua conta FaucetPay!`;
+      const paid = data.totalPaid || amount;
+      state.balance += paid;
+      state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount: paid, mode:'real' });
+      const bonusNote = data.referredBonusApplied ? ' (com +10% de bônus de indicado)' : '';
+      document.getElementById('result').textContent = `+ ${paid} PEPE enviado pra sua conta FaucetPay!${bonusNote}`;
     } else {
       state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount:0, mode:'erro' });
       document.getElementById('result').textContent = `Não foi possível pagar: ${data.message || data.error || 'erro desconhecido'}`;
@@ -495,6 +599,16 @@ function saveAccount(){
   const status = document.getElementById('accountStatus');
   status.textContent = val ? 'Conta salva: ' + val : '';
   setTimeout(()=>{ status.textContent=''; }, 3000);
+
+  // Registra no servidor qual conta deve receber a comissão de 5% quando
+  // alguém que essa pessoa indicou fizer um resgate.
+  if(val && state.refCode){
+    fetch('/.netlify/functions/referral', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set-account', ref: state.refCode, account: val })
+    }).catch(()=>{ /* falha silenciosa */ });
+  }
 }
 
 function copyRef(){
@@ -503,8 +617,276 @@ function copyRef(){
   navigator.clipboard?.writeText(input.value);
 }
 
+/* ===================== PTC — lado do visitante ===================== */
+
+let ptcCampaigns = {}; // cache local: id -> dados da campanha (pra usar a URL no window.open)
+
+async function loadPtcList(){
+  try{
+    const resp = await fetch('/.netlify/functions/ptc', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'list' })
+    });
+    const data = await resp.json();
+    renderPtcList(data.success ? data.campaigns : []);
+  }catch(e){ renderPtcList([]); }
+}
+
+function ptcDoneToday(id){
+  const map = JSON.parse(localStorage.getItem(NS+':ptcDoneToday') || '{}');
+  return map[id] === new Date().toISOString().slice(0,10);
+}
+function markPtcDoneToday(id){
+  const map = JSON.parse(localStorage.getItem(NS+':ptcDoneToday') || '{}');
+  map[id] = new Date().toISOString().slice(0,10);
+  localStorage.setItem(NS+':ptcDoneToday', JSON.stringify(map));
+}
+
+function renderPtcList(campaigns){
+  ptcCampaigns = {};
+  campaigns.forEach(c => ptcCampaigns[c.id] = c);
+
+  const el = document.getElementById('ptcList');
+  if(!campaigns.length){
+    el.innerHTML = '<div class="ptc-empty">Nenhum anúncio disponível agora. Volte mais tarde!</div>';
+    return;
+  }
+  el.innerHTML = campaigns.map(c=>{
+    const done = ptcDoneToday(c.id);
+    return `
+    <div class="ptc-card">
+      <div class="ptc-info">
+        <h4>${escapeHtml(c.title)}</h4>
+        <p>${escapeHtml(c.description)}</p>
+      </div>
+      <div class="ptc-side">
+        <div class="ptc-reward">+${c.rewardPerView} PEPE</div>
+        <button class="ptc-btn" id="ptc-btn-${c.id}" ${done?'disabled':''} onclick="startPtcView('${c.id}')">
+          ${done ? 'Visto hoje' : 'Visitar por '+c.viewSeconds+'s'}
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function startPtcView(id){
+  const c = ptcCampaigns[id];
+  const btn = document.getElementById('ptc-btn-'+id);
+  if(!c || !btn) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+
+  let data;
+  try{
+    const resp = await fetch('/.netlify/functions/ptc', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'start-view', id, visitorId: getVisitorId() })
+    });
+    data = await resp.json();
+  }catch(e){
+    btn.disabled = false; btn.textContent = original;
+    return;
+  }
+
+  if(!data.success){
+    btn.textContent = data.error === 'já visto hoje' ? 'Visto hoje' : (data.error || 'Indisponível');
+    if(data.error === 'já visto hoje') markPtcDoneToday(id);
+    return;
+  }
+
+  window.open(c.url, '_blank', 'noopener');
+
+  let remaining = data.viewSeconds;
+  btn.textContent = `Aguarde ${remaining}s...`;
+  const interval = setInterval(()=>{
+    remaining--;
+    if(remaining <= 0){
+      clearInterval(interval);
+      btn.textContent = 'Resgatar';
+      btn.disabled = false;
+      btn.onclick = ()=>completePtcView(id);
+    }else{
+      btn.textContent = `Aguarde ${remaining}s...`;
+    }
+  }, 1000);
+}
+
+async function completePtcView(id){
+  const btn = document.getElementById('ptc-btn-'+id);
+  if(!btn) return;
+  btn.disabled = true;
+  btn.textContent = 'Resgatando...';
+
+  try{
+    const resp = await fetch('/.netlify/functions/ptc', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'complete-view', id, visitorId: getVisitorId(), to: state.account || null })
+    });
+    const data = await resp.json();
+    if(data.success){
+      state.balance += data.reward;
+      state.history.unshift({
+        time: new Date().toLocaleTimeString('pt-BR'),
+        amount: data.reward,
+        mode: data.paid ? 'real' : 'demo'
+      });
+      saveState();
+      render();
+      markPtcDoneToday(id);
+      btn.textContent = 'Visto hoje';
+    }else{
+      btn.textContent = data.error || 'Erro';
+      btn.disabled = false;
+    }
+  }catch(e){
+    btn.textContent = 'Erro de rede';
+    btn.disabled = false;
+  }
+}
+
+function toggleAdvertiserForm(){
+  document.getElementById('advertiserForm').classList.toggle('hidden');
+}
+
+async function submitCampaign(){
+  const url = document.getElementById('adUrl').value.trim();
+  const title = document.getElementById('adTitle').value.trim();
+  const description = document.getElementById('adDesc').value.trim();
+  const rewardPerView = parseInt(document.getElementById('adReward').value, 10);
+  const viewSeconds = parseInt(document.getElementById('adSeconds').value, 10);
+  const totalViews = parseInt(document.getElementById('adViews').value, 10);
+  const advertiserAccount = document.getElementById('adAccount').value.trim();
+  const status = document.getElementById('adStatus');
+
+  if(!/^https?:\/\//.test(url)){ status.textContent = 'Link inválido (precisa começar com http:// ou https://).'; return; }
+  if(!title){ status.textContent = 'Título obrigatório.'; return; }
+  if(!rewardPerView || rewardPerView<1 || rewardPerView>240){ status.textContent = 'Recompensa deve ser entre 1 e 240 PEPE.'; return; }
+  if(!viewSeconds || viewSeconds<10 || viewSeconds>60){ status.textContent = 'Tempo deve ser entre 10 e 60 segundos.'; return; }
+  if(!totalViews || totalViews<1){ status.textContent = 'Informe quantas visualizações deseja.'; return; }
+  if(!advertiserAccount){ status.textContent = 'Informe sua conta FaucetPay.'; return; }
+
+  status.textContent = 'Enviando...';
+  try{
+    const resp = await fetch('/.netlify/functions/ptc', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'submit', url, title, description, rewardPerView, viewSeconds, totalViews, advertiserAccount })
+    });
+    const data = await resp.json();
+    if(data.success){
+      status.textContent = 'Campanha enviada! Pague o valor combinado na nossa conta FaucetPay e aguarde aprovação.';
+      ['adUrl','adTitle','adDesc','adAccount'].forEach(id=>document.getElementById(id).value='');
+    }else{
+      status.textContent = data.error || 'Erro ao enviar.';
+    }
+  }catch(e){
+    status.textContent = 'Erro de rede.';
+  }
+}
+
+/* ===================== PTC — painel do admin ===================== */
+
+let adminKey = sessionStorage.getItem(NS+':adminKey') || '';
+
+async function adminLogin(){
+  const val = document.getElementById('adminKeyInput').value.trim();
+  const status = document.getElementById('adminStatus');
+  if(!val){ status.textContent = 'Digite a senha.'; return; }
+  adminKey = val;
+  status.textContent = 'Verificando...';
+  const ok = await loadAdminList();
+  if(ok){
+    sessionStorage.setItem(NS+':adminKey', adminKey);
+    status.textContent = 'Conectado.';
+  }else{
+    status.textContent = 'Senha incorreta ou PTC_ADMIN_KEY não configurada no Netlify.';
+    adminKey = '';
+  }
+}
+
+async function loadAdminList(){
+  if(!adminKey) return false;
+  try{
+    const resp = await fetch('/.netlify/functions/ptc', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'admin-list', adminKey })
+    });
+    const data = await resp.json();
+    if(!data.success) return false;
+    renderAdminList(data.campaigns);
+    return true;
+  }catch(e){ return false; }
+}
+
+const STATUS_LABEL = {
+  pending:'pendente', active:'ativa', paused:'pausada', rejected:'rejeitada', exhausted:'esgotada'
+};
+
+function renderAdminList(campaigns){
+  const el = document.getElementById('adminCampaigns');
+  if(!campaigns.length){ el.innerHTML = '<div class="ptc-empty">Nenhuma campanha ainda.</div>'; return; }
+
+  el.innerHTML = campaigns.map(c=>{
+    let actions = '';
+    if(c.status === 'pending'){
+      actions = `
+        <input type="number" min="1" placeholder="views a aprovar" id="approve-${c.id}"
+          style="width:100%; padding:8px; margin-bottom:6px; border-radius:8px; border:2px solid var(--line); font-family:var(--mono);">
+        <button class="save-btn" style="width:100%; margin-bottom:6px;" onclick="approveCampaign('${c.id}')">Aprovar</button>
+        <button class="copy-btn" style="width:100%;" onclick="rejectCampaign('${c.id}')">Rejeitar</button>`;
+    }else if(c.status === 'active' || c.status === 'paused'){
+      actions = `<button class="save-btn" style="width:100%;" onclick="toggleCampaign('${c.id}')">${c.status==='active'?'Pausar':'Reativar'}</button>`;
+    }
+    return `
+    <div class="ptc-card">
+      <div class="ptc-info">
+        <h4>${escapeHtml(c.title)}<span class="admin-badge">${STATUS_LABEL[c.status]||c.status}</span></h4>
+        <p>${escapeHtml(c.url)}</p>
+        <p>${escapeHtml(c.description)}</p>
+        <p style="font-family:var(--mono); font-size:11px; margin-top:4px;">
+          ${c.rewardPerView} PEPE · ${c.viewSeconds}s · pediu ${c.totalViews} views · conta: ${escapeHtml(c.advertiserAccount)}
+        </p>
+        ${c.approvedViews ? `<p style="font-family:var(--mono); font-size:11px;">restam ${c.remainingViews} de ${c.approvedViews} aprovadas</p>` : ''}
+      </div>
+      <div class="ptc-side" style="min-width:160px;">${actions}</div>
+    </div>`;
+  }).join('');
+}
+
+async function approveCampaign(id){
+  const input = document.getElementById('approve-'+id);
+  const views = parseInt(input.value, 10);
+  if(!views || views<1){ alert('Informe quantas visualizações aprovar.'); return; }
+  await fetch('/.netlify/functions/ptc', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'admin-approve', adminKey, id, approvedViews: views })
+  });
+  loadAdminList();
+}
+
+async function rejectCampaign(id){
+  await fetch('/.netlify/functions/ptc', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'admin-reject', adminKey, id })
+  });
+  loadAdminList();
+}
+
+async function toggleCampaign(id){
+  await fetch('/.netlify/functions/ptc', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'admin-toggle', adminKey, id })
+  });
+  loadAdminList();
+}
+
 buildWheel();
 loadState();
+loadPtcList();
+
+if(new URLSearchParams(window.location.search).get('admin') === '1'){
+  document.getElementById('adminTabBtn').classList.remove('hidden');
+  if(adminKey) loadAdminList();
+}
 </script>
 </body>
 </html>
