@@ -344,11 +344,6 @@ const SEGMENTS = [
 const COOLDOWN_MS = 300 * 1000; // 5 minutos entre resgates
 const NS = "pepespin";
 
-// window.storage só existe no ambiente de preview do Claude. No site publicado
-// de verdade esse objeto não existe, e sem isso o estado (incluindo o horário do
-// último resgate) nunca era salvo de verdade — por isso atualizar a página
-// resetava o tempo de espera. Esse polyfill usa localStorage do navegador,
-// que funciona em qualquer site publicado, pra persistir os dados de verdade.
 if(!window.storage){
   window.storage = {
     async get(key){
@@ -413,21 +408,15 @@ async function loadState(){
     await saveState();
   }
 
-  // Identificador único deste navegador/visitante — usado tanto pra evitar
-  // contar a mesma indicação duas vezes quanto pro sistema de PTC (ver
-  // getVisitorId() mais abaixo, usada nas ações start-view/complete-view).
   const visitorId = getVisitorId();
 
-  // Registra a indicação no servidor se chegou por um link ?ref=, e guarda
-  // pra sempre (mesmo depois de sair do site) que essa pessoa foi indicada,
-  // pra ela continuar recebendo o bônus de 10% em resgates futuros também.
   const params = new URLSearchParams(window.location.search);
   const incomingRef = params.get('ref');
   if(incomingRef && incomingRef !== state.refCode && !state.referredBy){
     state.referredBy = incomingRef;
     await saveState();
     try{
-      await fetch('/.netlify/functions/referral', {
+      await fetch('/referral', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'register', ref: incomingRef, visitorId })
@@ -435,10 +424,8 @@ async function loadState(){
     }catch(e){ /* falha silenciosa: não impede o uso do site */ }
   }
 
-  // Busca no servidor a contagem real de indicados do próprio código,
-  // já contando visitas de outras pessoas de verdade (não só locais).
   try{
-    const resp = await fetch('/.netlify/functions/referral', {
+    const resp = await fetch('/referral', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'count', ref: state.refCode })
@@ -477,7 +464,7 @@ function render(){
 }
 
 function updateTimerLoop(){
-  if(spinning) return; // não mexe no botão enquanto a roleta está girando
+  if(spinning) return;
   const btn = document.getElementById('claimBtn');
   const timer = document.getElementById('timer');
   const nextStat = document.getElementById('nextInStat');
@@ -517,11 +504,9 @@ function spin(){
   const angle = 360/SEGMENTS.length;
   const targetMid = idx*angle + angle/2;
   const spins = 6;
-  // sempre soma à rotação atual, nunca reseta pra 0 — evita qualquer engasgo visual
   const finalRotation = currentRotation + spins*360 + (360 - (currentRotation % 360) - targetMid + 360) % 360;
 
   wheel.style.transition = 'transform 4.5s cubic-bezier(.17,.67,.16,.99)';
-  // espera dois frames antes de aplicar, garante que o navegador registrou o estado anterior
   requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
       wheel.style.transform = `rotate(${finalRotation}deg)`;
@@ -529,7 +514,6 @@ function spin(){
   });
   currentRotation = finalRotation;
 
-  // failsafe: se por algum motivo o transitionend não disparar, libera do mesmo jeito
   let done = false;
   const finish = ()=>{
     if(done) return;
@@ -546,7 +530,6 @@ async function creditBalance(amount){
   state.claims += 1;
   state.lastClaim = Date.now();
 
-  // Sem conta FaucetPay salva: fica em modo demonstração (só soma na tela).
   if(!state.account){
     state.balance += amount;
     state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount, mode:'demo' });
@@ -555,16 +538,14 @@ async function creditBalance(amount){
     return;
   }
 
-  // Com conta salva: tenta pagar de verdade via Netlify Function.
   try{
-    const resp = await fetch('/.netlify/functions/claim', {
+    const resp = await fetch('/claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ to: state.account, amount, referredBy: state.referredBy || null })
     });
 
     if(resp.status === 404){
-      // função ainda não foi publicada nesse site
       state.balance += amount;
       state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount, mode:'demo' });
       document.getElementById('result').textContent = `+ ${amount} PEPE (modo demonstração — função de pagamento ainda não publicada)`;
@@ -600,10 +581,8 @@ function saveAccount(){
   status.textContent = val ? 'Conta salva: ' + val : '';
   setTimeout(()=>{ status.textContent=''; }, 3000);
 
-  // Registra no servidor qual conta deve receber a comissão de 5% quando
-  // alguém que essa pessoa indicou fizer um resgate.
   if(val && state.refCode){
-    fetch('/.netlify/functions/referral', {
+    fetch('/referral', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'set-account', ref: state.refCode, account: val })
@@ -619,11 +598,11 @@ function copyRef(){
 
 /* ===================== PTC — lado do visitante ===================== */
 
-let ptcCampaigns = {}; // cache local: id -> dados da campanha (pra usar a URL no window.open)
+let ptcCampaigns = {};
 
 async function loadPtcList(){
   try{
-    const resp = await fetch('/.netlify/functions/ptc', {
+    const resp = await fetch('/ptc', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'list' })
     });
@@ -678,7 +657,7 @@ async function startPtcView(id){
 
   let data;
   try{
-    const resp = await fetch('/.netlify/functions/ptc', {
+    const resp = await fetch('/ptc', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'start-view', id, visitorId: getVisitorId() })
     });
@@ -718,7 +697,7 @@ async function completePtcView(id){
   btn.textContent = 'Resgatando...';
 
   try{
-    const resp = await fetch('/.netlify/functions/ptc', {
+    const resp = await fetch('/ptc', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'complete-view', id, visitorId: getVisitorId(), to: state.account || null })
     });
@@ -767,7 +746,7 @@ async function submitCampaign(){
 
   status.textContent = 'Enviando...';
   try{
-    const resp = await fetch('/.netlify/functions/ptc', {
+    const resp = await fetch('/ptc', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'submit', url, title, description, rewardPerView, viewSeconds, totalViews, advertiserAccount })
     });
@@ -798,7 +777,7 @@ async function adminLogin(){
     sessionStorage.setItem(NS+':adminKey', adminKey);
     status.textContent = 'Conectado.';
   }else{
-    status.textContent = 'Senha incorreta ou PTC_ADMIN_KEY não configurada no Netlify.';
+    status.textContent = 'Senha incorreta ou PTC_ADMIN_KEY não configurada no Cloudflare.';
     adminKey = '';
   }
 }
@@ -806,7 +785,7 @@ async function adminLogin(){
 async function loadAdminList(){
   if(!adminKey) return false;
   try{
-    const resp = await fetch('/.netlify/functions/ptc', {
+    const resp = await fetch('/ptc', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'admin-list', adminKey })
     });
@@ -856,7 +835,7 @@ async function approveCampaign(id){
   const input = document.getElementById('approve-'+id);
   const views = parseInt(input.value, 10);
   if(!views || views<1){ alert('Informe quantas visualizações aprovar.'); return; }
-  await fetch('/.netlify/functions/ptc', {
+  await fetch('/ptc', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'admin-approve', adminKey, id, approvedViews: views })
   });
@@ -864,7 +843,7 @@ async function approveCampaign(id){
 }
 
 async function rejectCampaign(id){
-  await fetch('/.netlify/functions/ptc', {
+  await fetch('/ptc', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'admin-reject', adminKey, id })
   });
@@ -872,7 +851,7 @@ async function rejectCampaign(id){
 }
 
 async function toggleCampaign(id){
-  await fetch('/.netlify/functions/ptc', {
+  await fetch('/ptc', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ action:'admin-toggle', adminKey, id })
   });
