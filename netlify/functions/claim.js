@@ -2,6 +2,13 @@
 // Por isso a API key fica segura aqui (lida de uma variável de ambiente),
 // em vez de ficar exposta no código do site.
 
+const { getStore } = require('@netlify/blobs');
+
+// Precisa bater com os textos exibidos na aba "Indicação" do index.html:
+// 10% de bônus pra quem foi indicado, 5% de comissão pra quem indicou.
+const REFERRED_BONUS_RATE = 0.10;
+const REFERRER_COMMISSION_RATE = 0.05;
+
 // Precisa bater com o COOLDOWN_MS do index.html (lá em segundos: 300 = 5 min).
 // Isso é a segunda camada de proteção: mesmo que alguém limpe o localStorage
 // do navegador ou use aba anônima pra tentar burlar o tempo de espera do lado
@@ -50,6 +57,26 @@ async function secondsSinceLastPayout(apiKey, to) {
   }
 }
 
+// A FaucetPay espera o valor na MENOR unidade da moeda (tipo satoshi), não no
+// valor "inteiro". Para PEPE, 1 PEPE inteiro = 100.000.000 dessa unidade.
+const SMALLEST_UNIT_FACTOR = 100000000;
+
+async function sendPayment(apiKey, to, amountPepe, ip) {
+  const form = new URLSearchParams();
+  form.set('api_key', apiKey);
+  form.set('to', String(to));
+  form.set('amount', String(Math.round(amountPepe * SMALLEST_UNIT_FACTOR)));
+  form.set('currency', 'PEPE');
+  form.set('ip_address', ip);
+
+  const resp = await fetch('https://faucetpay.io/api/v1/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString()
+  });
+  return resp.json();
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ success:false, error: 'Método não permitido' }) };
@@ -67,7 +94,7 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ success:false, error: 'Corpo da requisição inválido' }) };
   }
 
-  const { to, amount } = payload;
+  const { to, amount, referredBy } = payload;
   if (!to || !amount || Number(amount) <= 0) {
     return { statusCode: 400, body: JSON.stringify({ success:false, error: 'Dados de resgate incompletos' }) };
   }
@@ -81,38 +108,52 @@ exports.handler = async (event) => {
     };
   }
 
-  // A FaucetPay espera o valor na MENOR unidade da moeda (tipo satoshi),
-  // não no valor "inteiro". Para PEPE, 1 PEPE inteiro = 100.000.000 dessa unidade.
-  // Sem essa conversão, o valor pago fica 100 milhões de vezes menor do que deveria.
-  const SMALLEST_UNIT_FACTOR = 100000000;
-  const amountSmallestUnit = Math.round(Number(amount) * SMALLEST_UNIT_FACTOR);
+  const baseAmount = Number(amount);
+  // Se essa pessoa entrou pelo link de alguém, ela ganha 10% a mais no
+  // próprio resgate. O valor total pago pra ela já sai correto de uma vez.
+  const referredBonus = referredBy ? baseAmount * REFERRED_BONUS_RATE : 0;
+  const totalToUser = baseAmount + referredBonus;
 
-  const form = new URLSearchParams();
-  form.set('api_key', API_KEY);
-  form.set('to', String(to));
-  form.set('amount', String(amountSmallestUnit));
-  form.set('currency', 'PEPE');
-  form.set('ip_address', getClientIp(event));
+  const ip = getClientIp(event);
 
   try {
-    const resp = await fetch('https://faucetpay.io/api/v1/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: form.toString()
-    });
-    const data = await resp.json();
+    const data = await sendPayment(API_KEY, to, totalToUser, ip);
 
-    if (data.status === 200) {
+    if (data.status !== 200) {
       return {
         statusCode: 200,
-        body: JSON.stringify({ success: true, payout_id: data.payout_id || null })
+        body: JSON.stringify({ success: false, code: data.status, message: data.message || 'Pagamento recusado pela FaucetPay' })
       };
     }
 
-    // A FaucetPay respondeu, mas recusou o pagamento (saldo insuficiente, conta inválida, etc.)
+    // Pagamento principal feito. Agora, se essa pessoa foi indicada por
+    // alguém, tenta pagar os 5% de comissão pra quem indicou. Isso roda
+    // depois do pagamento principal e uma falha aqui não desfaz nem
+    // reporta erro pro usuário — ele já recebeu o resgate dele normalmente.
+    let referrerPaid = false;
+    if (referredBy) {
+      try {
+        const store = getStore('pepespin-referrals');
+        const referrerAccount = await store.get(`account:${referredBy}`);
+        if (referrerAccount && referrerAccount !== to) {
+          const commission = baseAmount * REFERRER_COMMISSION_RATE;
+          const commissionResult = await sendPayment(API_KEY, referrerAccount, commission, ip);
+          referrerPaid = commissionResult.status === 200;
+        }
+      } catch (e) {
+        // Falha silenciosa: não afeta o pagamento principal do usuário.
+      }
+    }
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: false, code: data.status, message: data.message || 'Pagamento recusado pela FaucetPay' })
+      body: JSON.stringify({
+        success: true,
+        payout_id: data.payout_id || null,
+        totalPaid: totalToUser,
+        referredBonusApplied: referredBonus > 0,
+        referrerPaid
+      })
     };
   } catch (err) {
     return {
