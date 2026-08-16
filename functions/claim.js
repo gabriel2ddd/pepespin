@@ -1,11 +1,34 @@
-// Essa função roda no Cloudflare (Pages Functions), nunca no navegador do
-// visitante. Por isso a API key fica segura aqui (lida da variável de
-// ambiente FAUCETPAY_API_KEY), em vez de ficar exposta no código do site.
+// Essa função roda no servidor da Cloudflare, nunca no navegador do visitante.
+// Por isso a API key fica segura aqui (lida de uma variável de ambiente/secret),
+// em vez de ficar exposta no código do site.
+//
+// Convertido do Netlify Functions + Netlify Blobs para Cloudflare Pages
+// Functions + Cloudflare KV. A lógica é idêntica à versão anterior.
 
+// Precisa bater com os textos exibidos na aba "Indicação" do index.html:
+// 10% de bônus pra quem foi indicado, 5% de comissão pra quem indicou.
 const REFERRED_BONUS_RATE = 0.10;
 const REFERRER_COMMISSION_RATE = 0.05;
+
+// Precisa bater com o COOLDOWN_MS do index.html (lá em segundos: 300 = 5 min).
+// Segunda camada de proteção: mesmo que alguém limpe o localStorage do
+// navegador ou use aba anônima, essa checagem no servidor consulta o
+// histórico real de pagamentos da FaucetPay e bloqueia o resgate se o mesmo
+// destinatário já recebeu um pagamento nosso há menos de COOLDOWN_SECONDS.
 const COOLDOWN_SECONDS = 300;
+
 const SMALLEST_UNIT_FACTOR = 100000000;
+
+function json(status, body) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function getClientIp(request) {
+  return request.headers.get('CF-Connecting-IP') || '0.0.0.0';
+}
 
 async function sendPayment(apiKey, to, amountPepe, ip) {
   const form = new URLSearchParams();
@@ -50,16 +73,12 @@ async function secondsSinceLastPayout(apiKey, to) {
   }
 }
 
-function json(status, body) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-}
-
 export async function onRequestPost(context) {
   const { request, env } = context;
 
   const API_KEY = env.FAUCETPAY_API_KEY;
   if (!API_KEY) {
-    return json(500, { success: false, error: 'FAUCETPAY_API_KEY não configurada nas variáveis de ambiente do site' });
+    return json(500, { success: false, error: 'FAUCETPAY_API_KEY não configurada nas variáveis de ambiente do Cloudflare Pages' });
   }
 
   let payload;
@@ -84,7 +103,7 @@ export async function onRequestPost(context) {
   const referredBonus = referredBy ? baseAmount * REFERRED_BONUS_RATE : 0;
   const totalToUser = baseAmount + referredBonus;
 
-  const ip = request.headers.get('cf-connecting-ip') || '0.0.0.0';
+  const ip = getClientIp(request);
 
   try {
     const data = await sendPayment(API_KEY, to, totalToUser, ip);
@@ -94,7 +113,7 @@ export async function onRequestPost(context) {
     }
 
     let referrerPaid = false;
-    if (referredBy && env.PEPESPIN_KV) {
+    if (referredBy) {
       try {
         const referrerAccount = await env.PEPESPIN_KV.get(`ref:account:${referredBy}`);
         if (referrerAccount && referrerAccount !== to) {
@@ -102,7 +121,9 @@ export async function onRequestPost(context) {
           const commissionResult = await sendPayment(API_KEY, referrerAccount, commission, ip);
           referrerPaid = commissionResult.status === 200;
         }
-      } catch (e) { /* falha silenciosa: não afeta o pagamento principal */ }
+      } catch (e) {
+        // Falha silenciosa: não afeta o pagamento principal do usuário.
+      }
     }
 
     return json(200, {
