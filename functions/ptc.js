@@ -1,24 +1,24 @@
 // Sistema de PTC (Paid To Click): anunciantes cadastram um link e pagam pra
-// que visitantes vejam por um tempo mínimo em troca de PEPE. A aprovação de
-// pagamento é MANUAL (o admin confere no histórico da própria FaucetPay e
-// libera aqui). Guardado no mesmo Cloudflare KV do resto do site, com
-// prefixo "ptc:" nas chaves pra não colidir com os dados de indicação.
-
-const SMALLEST_UNIT_FACTOR = 100000000;
-
-function json(status, body) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-}
+// que visitantes vejam por um tempo mínimo em troca de PEPE. Toda a parte de
+// aprovação de pagamento é MANUAL (o admin confere no histórico da própria
+// FaucetPay e libera aqui) — não depende da Merchant API da FaucetPay, que
+// exige aprovação prévia deles.
+//
+// Convertido do Netlify Functions + Netlify Blobs para Cloudflare Pages
+// Functions + Cloudflare KV. A lógica é idêntica à versão anterior.
 
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function checkAdmin(env, payload) {
-  const expected = env.PTC_ADMIN_KEY;
-  return !!expected && payload.adminKey === expected;
+function json(status, body) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  });
 }
 
+const SMALLEST_UNIT_FACTOR = 100000000;
 async function sendPayment(apiKey, to, amountPepe, ip) {
   const form = new URLSearchParams();
   form.set('api_key', apiKey);
@@ -35,11 +35,24 @@ async function sendPayment(apiKey, to, amountPepe, ip) {
   return resp.json();
 }
 
-async function loadAllCampaigns(KV) {
-  const list = await KV.list({ prefix: 'ptc:campaign:' });
+function getClientIp(request) {
+  return request.headers.get('CF-Connecting-IP') || '0.0.0.0';
+}
+
+// Só o admin pode ver a lista completa (com a conta do anunciante) e
+// aprovar/rejeitar/pausar campanhas. A chave é definida como variável de
+// ambiente PTC_ADMIN_KEY no painel do Cloudflare — sem isso configurado, o
+// painel de admin fica bloqueado pra todo mundo (comportamento seguro).
+function checkAdmin(payload, env) {
+  const expected = env.PTC_ADMIN_KEY;
+  return !!expected && payload.adminKey === expected;
+}
+
+async function loadAllCampaigns(kv) {
+  const list = await kv.list({ prefix: 'ptc:campaign:' });
   const campaigns = [];
-  for (const key of list.keys || []) {
-    const raw = await KV.get(key.name);
+  for (const entry of list.keys || []) {
+    const raw = await kv.get(entry.name);
     if (raw) {
       try { campaigns.push(JSON.parse(raw)); } catch (e) { /* ignora entrada corrompida */ }
     }
@@ -50,7 +63,7 @@ async function loadAllCampaigns(KV) {
 
 export async function onRequestPost(context) {
   const { request, env } = context;
-  const KV = env.PEPESPIN_KV;
+  const kv = env.PEPESPIN_KV;
 
   let payload;
   try {
@@ -104,13 +117,13 @@ export async function onRequestPost(context) {
         advertiserAccount: advertiserAccount.trim(),
         createdAt: Date.now()
       };
-      await KV.put('ptc:campaign:' + id, JSON.stringify(campaign));
+      await kv.put('ptc:campaign:' + id, JSON.stringify(campaign));
       return json(200, { success: true, id });
     }
 
     // ── Lista pública: só campanhas ativas com saldo de visualização, sem dado sensível ──
     if (action === 'list') {
-      const all = await loadAllCampaigns(KV);
+      const all = await loadAllCampaigns(kv);
       const campaigns = all
         .filter(c => c.status === 'active' && c.remainingViews > 0)
         .map(c => ({
@@ -128,7 +141,7 @@ export async function onRequestPost(context) {
         return json(400, { success: false, error: 'visitorId inválido' });
       }
 
-      const raw = await KV.get('ptc:campaign:' + id);
+      const raw = await kv.get('ptc:campaign:' + id);
       if (!raw) return json(404, { success: false, error: 'Campanha não encontrada' });
       const campaign = JSON.parse(raw);
       if (campaign.status !== 'active' || campaign.remainingViews <= 0) {
@@ -136,12 +149,12 @@ export async function onRequestPost(context) {
       }
 
       const viewedKey = `ptc:viewed:${id}:${visitorId}:${today()}`;
-      const already = await KV.get(viewedKey);
+      const already = await kv.get(viewedKey);
       if (already) {
         return json(200, { success: false, error: 'já visto hoje' });
       }
 
-      await KV.put(`ptc:pending:${id}:${visitorId}`, String(Date.now()));
+      await kv.put(`ptc:pending:${id}:${visitorId}`, String(Date.now()), { expirationTtl: 3600 });
       return json(200, { success: true, viewSeconds: campaign.viewSeconds, reward: campaign.rewardPerView });
     }
 
@@ -154,42 +167,50 @@ export async function onRequestPost(context) {
       }
 
       const pendingKey = `ptc:pending:${id}:${visitorId}`;
-      const startedAtRaw = await KV.get(pendingKey);
+      const startedAtRaw = await kv.get(pendingKey);
       if (!startedAtRaw) {
         return json(200, { success: false, error: 'Visualização não iniciada. Clique em Visitar de novo.' });
       }
 
-      const raw = await KV.get('ptc:campaign:' + id);
+      const raw = await kv.get('ptc:campaign:' + id);
       if (!raw) return json(404, { success: false, error: 'Campanha não encontrada' });
       const campaign = JSON.parse(raw);
       if (campaign.status !== 'active' || campaign.remainingViews <= 0) {
         return json(200, { success: false, error: 'Campanha indisponível' });
       }
 
+      // Tolerância de 1.5s pra variação de rede/timer do navegador — o resto
+      // do tempo precisa ter passado de verdade, checado com o relógio do
+      // servidor (o cliente não pode simplesmente mentir o tempo esperado).
       const elapsedMs = Date.now() - parseInt(startedAtRaw, 10);
       if (elapsedMs < campaign.viewSeconds * 1000 - 1500) {
         return json(200, { success: false, error: 'Tempo de visualização ainda não completou' });
       }
 
       const viewedKey = `ptc:viewed:${id}:${visitorId}:${today()}`;
-      const already = await KV.get(viewedKey);
+      const already = await kv.get(viewedKey);
       if (already) {
         return json(200, { success: false, error: 'já visto hoje' });
       }
 
-      await KV.put(viewedKey, '1');
-      await KV.delete(pendingKey);
+      // Guarda por 3 dias — só precisamos saber se foi "hoje" (a chave já
+      // tem a data embutida, então dados velhos podem expirar sozinhos).
+      await kv.put(viewedKey, '1', { expirationTtl: 259200 });
+      await kv.delete(pendingKey);
 
       campaign.remainingViews -= 1;
       if (campaign.remainingViews <= 0) campaign.status = 'exhausted';
-      await KV.put('ptc:campaign:' + id, JSON.stringify(campaign));
+      await kv.put('ptc:campaign:' + id, JSON.stringify(campaign));
 
+      // Se o visitante já tem conta FaucetPay salva, paga de verdade e na
+      // hora. Sem conta salva, fica em modo demonstração (o front-end só
+      // soma no saldo exibido), igual já acontece com a roleta.
       let paid = false;
       if (to && typeof to === 'string') {
         const API_KEY = env.FAUCETPAY_API_KEY;
         if (API_KEY) {
           try {
-            const ip = request.headers.get('cf-connecting-ip') || '0.0.0.0';
+            const ip = getClientIp(request);
             const result = await sendPayment(API_KEY, to, campaign.rewardPerView, ip);
             paid = result.status === 200;
           } catch (e) { /* pagamento falhou, mas a visualização já foi contabilizada */ }
@@ -200,12 +221,12 @@ export async function onRequestPost(context) {
     }
 
     // ── A partir daqui, todas as ações exigem a chave de administrador ──
-    if (!checkAdmin(env, payload)) {
+    if (!checkAdmin(payload, env)) {
       return json(403, { success: false, error: 'Chave de administrador inválida ou não configurada' });
     }
 
     if (action === 'admin-list') {
-      const campaigns = await loadAllCampaigns(KV);
+      const campaigns = await loadAllCampaigns(kv);
       return json(200, { success: true, campaigns });
     }
 
@@ -215,41 +236,41 @@ export async function onRequestPost(context) {
       if (!id || !views || views < 1 || views > 1000000) {
         return json(400, { success: false, error: 'Dados de aprovação inválidos' });
       }
-      const raw = await KV.get('ptc:campaign:' + id);
+      const raw = await kv.get('ptc:campaign:' + id);
       if (!raw) return json(404, { success: false, error: 'Campanha não encontrada' });
       const campaign = JSON.parse(raw);
       campaign.approvedViews = views;
       campaign.remainingViews = views;
       campaign.status = 'active';
       campaign.approvedAt = Date.now();
-      await KV.put('ptc:campaign:' + id, JSON.stringify(campaign));
+      await kv.put('ptc:campaign:' + id, JSON.stringify(campaign));
       return json(200, { success: true });
     }
 
     if (action === 'admin-reject') {
       const { id } = payload;
-      const raw = await KV.get('ptc:campaign:' + id);
+      const raw = await kv.get('ptc:campaign:' + id);
       if (!raw) return json(404, { success: false, error: 'Campanha não encontrada' });
       const campaign = JSON.parse(raw);
       campaign.status = 'rejected';
-      await KV.put('ptc:campaign:' + id, JSON.stringify(campaign));
+      await kv.put('ptc:campaign:' + id, JSON.stringify(campaign));
       return json(200, { success: true });
     }
 
     if (action === 'admin-toggle') {
       const { id } = payload;
-      const raw = await KV.get('ptc:campaign:' + id);
+      const raw = await kv.get('ptc:campaign:' + id);
       if (!raw) return json(404, { success: false, error: 'Campanha não encontrada' });
       const campaign = JSON.parse(raw);
       if (campaign.status === 'active') campaign.status = 'paused';
       else if (campaign.status === 'paused') campaign.status = 'active';
       else return json(400, { success: false, error: 'Só dá pra pausar/reativar campanhas ativas ou pausadas' });
-      await KV.put('ptc:campaign:' + id, JSON.stringify(campaign));
+      await kv.put('ptc:campaign:' + id, JSON.stringify(campaign));
       return json(200, { success: true, status: campaign.status });
     }
 
     return json(400, { success: false, error: 'Ação desconhecida' });
   } catch (err) {
-    return json(502, { success: false, error: 'Falha ao acessar o armazenamento' });
+    return json(502, { success: false, error: 'Falha ao acessar o armazenamento: ' + err.message });
   }
 }
