@@ -60,7 +60,7 @@
     border: 2px dashed var(--line); border-radius: 14px;
     display:flex; align-items:center; justify-content:center;
     color: var(--ink-dim); font-family: var(--mono); font-size: 12px;
-    background: var(--panel); height: 90px; margin-bottom: 22px;
+    background: var(--panel); min-height: 90px; margin-bottom: 22px;
     overflow-x:auto; max-width:100%;
   }
 
@@ -189,12 +189,12 @@
   </header>
 
   <div class="ad-slot" id="adSlot">
-    <!-- BEGIN AADS AD UNIT 2451920 -->
-    <div id="frame" style="width: 728px;margin: auto;z-index: 99998;height: auto">
-      <iframe data-aa='2451920' src='//ad.a-ads.com/2451920/?size=728x90'
-        style='border:0; padding:0; width:728px; height:90px; overflow:hidden;display: block;margin: auto'></iframe>
+    <!-- BEGIN AADS AD UNIT 2452342 -->
+    <div id="frame" style="width: 100%;margin: auto;position: relative; z-index: 99998;">
+      <iframe data-aa='2452342' src='//acceptable.a-ads.com/2452342/?size=Adaptive'
+        style='border:0; padding:0; width:70%; height:auto; overflow:hidden;display: block;margin: auto'></iframe>
     </div>
-    <!-- END AADS AD UNIT 2451920 -->
+    <!-- END AADS AD UNIT 2452342 -->
   </div>
 
   <div class="tabs">
@@ -247,18 +247,24 @@
   <!-- REFERRAL TAB -->
   <div id="tab-ref" class="hidden">
     <div class="panel" style="text-align:left;">
-      <div class="field-group" style="margin-bottom:6px;">
-        <label>Seu link de indicação</label>
+      <div id="refNeedsAccount" class="field-hint hidden" style="margin-bottom:10px;">
+        Salve sua conta FaucetPay na aba "Conta FaucetPay" primeiro — seu link de indicação
+        fixo (o mesmo em qualquer aparelho) é gerado a partir dela.
       </div>
-      <div class="ref-box">
-        <input type="text" id="refLink" readonly>
-        <button class="copy-btn" onclick="copyRef()">Copiar</button>
-      </div>
-      <div class="field-hint">Compartilhe esse link. Quem entrar por ele fica marcado como sua indicação.</div>
+      <div id="refBoxWrap">
+        <div class="field-group" style="margin-bottom:6px;">
+          <label>Seu link de indicação</label>
+        </div>
+        <div class="ref-box">
+          <input type="text" id="refLink" readonly>
+          <button class="copy-btn" onclick="copyRef()">Copiar</button>
+        </div>
+        <div class="field-hint">Compartilhe esse link. Quem entrar por ele fica marcado como sua indicação.</div>
 
-      <div class="split-row">
-        <div class="split-card"><b id="refCount">0</b><span>pessoas indicadas</span></div>
-        <div class="split-card"><b>10% / 5%</b><span>bônus indicado / você</span></div>
+        <div class="split-row">
+          <div class="split-card"><b id="refCount">0</b><span>pessoas indicadas</span></div>
+          <div class="split-card"><b>10% / 5%</b><span>bônus indicado / você</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -323,7 +329,15 @@
       </div>
       <button class="save-btn" onclick="adminLogin()">Entrar</button>
       <div class="status-ok" id="adminStatus"></div>
+
       <div id="adminCampaigns" style="margin-top:20px;"></div>
+
+      <div style="margin-top:24px; padding-top:16px; border-top:2px solid var(--line);">
+        <div class="field-group" style="margin-bottom:10px;">
+          <label>Usuários cadastrados</label>
+        </div>
+        <div id="adminUsers"></div>
+      </div>
     </div>
   </div>
 
@@ -344,6 +358,11 @@ const SEGMENTS = [
 const COOLDOWN_MS = 300 * 1000; // 5 minutos entre resgates
 const NS = "pepespin";
 
+// window.storage só existe no ambiente de preview do Claude. No site publicado
+// de verdade esse objeto não existe, e sem isso o estado (incluindo o horário do
+// último resgate) nunca era salvo de verdade — por isso atualizar a página
+// resetava o tempo de espera. Esse polyfill usa localStorage do navegador,
+// que funciona em qualquer site publicado, pra persistir os dados de verdade.
 if(!window.storage){
   window.storage = {
     async get(key){
@@ -403,13 +422,22 @@ async function loadState(){
     if(res && res.value) state = {...state, ...JSON.parse(res.value)};
   }catch(e){ /* sem estado salvo ainda */ }
 
-  if(!state.refCode){
-    state.refCode = Math.random().toString(36).slice(2,9);
-    await saveState();
+  // O código de indicação não é mais gerado aleatoriamente aqui. Ele vem do
+  // servidor, derivado da conta FaucetPay salva — assim é o mesmo código em
+  // qualquer aparelho, contanto que a conta salva seja a mesma. Se a pessoa
+  // já tinha uma conta salva localmente, sincroniza o código agora.
+  if(state.account){
+    await syncRefCode();
   }
 
+  // Identificador único deste navegador/visitante — usado tanto pra evitar
+  // contar a mesma indicação duas vezes quanto pro sistema de PTC (ver
+  // getVisitorId() mais abaixo, usada nas ações start-view/complete-view).
   const visitorId = getVisitorId();
 
+  // Registra a indicação no servidor se chegou por um link ?ref=, e guarda
+  // pra sempre (mesmo depois de sair do site) que essa pessoa foi indicada,
+  // pra ela continuar recebendo o bônus de 10% em resgates futuros também.
   const params = new URLSearchParams(window.location.search);
   const incomingRef = params.get('ref');
   if(incomingRef && incomingRef !== state.refCode && !state.referredBy){
@@ -424,17 +452,26 @@ async function loadState(){
     }catch(e){ /* falha silenciosa: não impede o uso do site */ }
   }
 
+  render();
+}
+
+// Busca (ou cria, na primeira vez) o código de indicação fixo ligado à
+// conta FaucetPay salva, e atualiza a contagem real de indicados.
+async function syncRefCode(){
+  if(!state.account) return;
   try{
     const resp = await fetch('/referral', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'count', ref: state.refCode })
+      body: JSON.stringify({ action: 'code-for-account', account: state.account })
     });
     const data = await resp.json();
-    state.refCount = data && data.success ? data.count : 0;
-  }catch(e){ state.refCount = 0; }
-
-  render();
+    if(data && data.success){
+      state.refCode = data.code;
+      state.refCount = data.count;
+      await saveState();
+    }
+  }catch(e){ /* mantém o que já tinha, se algo falhar */ }
 }
 
 async function saveState(){
@@ -456,15 +493,20 @@ function render(){
   }).join('') || '<div class="ledger-row"><span>nenhum resgate ainda</span><span>—</span></div>';
 
   document.getElementById('fpAccount').value = state.account || '';
-  const link = window.location.origin + window.location.pathname + '?ref=' + state.refCode;
-  document.getElementById('refLink').value = link;
-  document.getElementById('refCount').textContent = state.refCount;
+  const hasCode = !!state.refCode;
+  document.getElementById('refNeedsAccount').classList.toggle('hidden', hasCode);
+  document.getElementById('refBoxWrap').classList.toggle('hidden', !hasCode);
+  if(hasCode){
+    const link = window.location.origin + window.location.pathname + '?ref=' + state.refCode;
+    document.getElementById('refLink').value = link;
+    document.getElementById('refCount').textContent = state.refCount;
+  }
 
   updateTimerLoop();
 }
 
 function updateTimerLoop(){
-  if(spinning) return;
+  if(spinning) return; // não mexe no botão enquanto a roleta está girando
   const btn = document.getElementById('claimBtn');
   const timer = document.getElementById('timer');
   const nextStat = document.getElementById('nextInStat');
@@ -504,9 +546,11 @@ function spin(){
   const angle = 360/SEGMENTS.length;
   const targetMid = idx*angle + angle/2;
   const spins = 6;
+  // sempre soma à rotação atual, nunca reseta pra 0 — evita qualquer engasgo visual
   const finalRotation = currentRotation + spins*360 + (360 - (currentRotation % 360) - targetMid + 360) % 360;
 
   wheel.style.transition = 'transform 4.5s cubic-bezier(.17,.67,.16,.99)';
+  // espera dois frames antes de aplicar, garante que o navegador registrou o estado anterior
   requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
       wheel.style.transform = `rotate(${finalRotation}deg)`;
@@ -514,6 +558,7 @@ function spin(){
   });
   currentRotation = finalRotation;
 
+  // failsafe: se por algum motivo o transitionend não disparar, libera do mesmo jeito
   let done = false;
   const finish = ()=>{
     if(done) return;
@@ -530,6 +575,7 @@ async function creditBalance(amount){
   state.claims += 1;
   state.lastClaim = Date.now();
 
+  // Sem conta FaucetPay salva: fica em modo demonstração (só soma na tela).
   if(!state.account){
     state.balance += amount;
     state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount, mode:'demo' });
@@ -538,6 +584,7 @@ async function creditBalance(amount){
     return;
   }
 
+  // Com conta salva: tenta pagar de verdade via Netlify Function.
   try{
     const resp = await fetch('/claim', {
       method: 'POST',
@@ -546,6 +593,7 @@ async function creditBalance(amount){
     });
 
     if(resp.status === 404){
+      // função ainda não foi publicada nesse site
       state.balance += amount;
       state.history.unshift({ time: new Date().toLocaleTimeString('pt-BR'), amount, mode:'demo' });
       document.getElementById('result').textContent = `+ ${amount} PEPE (modo demonstração — função de pagamento ainda não publicada)`;
@@ -573,7 +621,7 @@ async function creditBalance(amount){
   render();
 }
 
-function saveAccount(){
+async function saveAccount(){
   const val = document.getElementById('fpAccount').value.trim();
   state.account = val;
   saveState();
@@ -581,12 +629,11 @@ function saveAccount(){
   status.textContent = val ? 'Conta salva: ' + val : '';
   setTimeout(()=>{ status.textContent=''; }, 3000);
 
-  if(val && state.refCode){
-    fetch('/referral', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set-account', ref: state.refCode, account: val })
-    }).catch(()=>{ /* falha silenciosa */ });
+  // Busca (ou cria) o código de indicação fixo ligado a essa conta —
+  // esse é o código que passa a valer, o mesmo em qualquer aparelho.
+  if(val){
+    await syncRefCode();
+    render();
   }
 }
 
@@ -598,7 +645,7 @@ function copyRef(){
 
 /* ===================== PTC — lado do visitante ===================== */
 
-let ptcCampaigns = {};
+let ptcCampaigns = {}; // cache local: id -> dados da campanha (pra usar a URL no window.open)
 
 async function loadPtcList(){
   try{
@@ -776,10 +823,38 @@ async function adminLogin(){
   if(ok){
     sessionStorage.setItem(NS+':adminKey', adminKey);
     status.textContent = 'Conectado.';
+    loadAdminUsers();
   }else{
-    status.textContent = 'Senha incorreta ou PTC_ADMIN_KEY não configurada no Cloudflare.';
+    status.textContent = 'Senha incorreta ou PTC_ADMIN_KEY não configurada.';
     adminKey = '';
   }
+}
+
+async function loadAdminUsers(){
+  if(!adminKey) return;
+  try{
+    const resp = await fetch('/referral', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'admin-list-users', adminKey })
+    });
+    const data = await resp.json();
+    if(!data.success) return;
+    renderAdminUsers(data.users);
+  }catch(e){ /* falha silenciosa */ }
+}
+
+function renderAdminUsers(users){
+  const el = document.getElementById('adminUsers');
+  if(!users || !users.length){
+    el.innerHTML = '<div class="field-hint">Nenhum usuário cadastrado ainda.</div>';
+    return;
+  }
+  el.innerHTML = users.map(u => `
+    <div class="ledger-row" style="flex-direction:column; align-items:flex-start; gap:2px; padding:8px 0;">
+      <div><b>${u.account}</b></div>
+      <div class="field-hint">código: ${u.refCode} · indicou: ${u.referredCount} · primeiro acesso: ${new Date(u.firstSeen).toLocaleString('pt-BR')} · último: ${new Date(u.lastSeen).toLocaleString('pt-BR')}</div>
+    </div>
+  `).join('');
 }
 
 async function loadAdminList(){
@@ -864,7 +939,7 @@ loadPtcList();
 
 if(new URLSearchParams(window.location.search).get('admin') === '1'){
   document.getElementById('adminTabBtn').classList.remove('hidden');
-  if(adminKey) loadAdminList();
+  if(adminKey){ loadAdminList(); loadAdminUsers(); }
 }
 </script>
 </body>
